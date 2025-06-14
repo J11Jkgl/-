@@ -378,6 +378,29 @@
             margin-bottom: 10px;
             transition: all 0.3s ease;
             animation: taskSlide 0.3s ease-out;
+            cursor: move;
+            position: relative;
+        }
+
+        .task-item:before {
+            content: '⋮⋮';
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #ccc;
+            font-size: 1.2rem;
+            line-height: 0.5;
+        }
+
+        .task-item.dragging {
+            opacity: 0.5;
+            transform: rotate(5deg);
+            z-index: 1000;
+        }
+
+        .task-item.drag-over {
+            border-top: 3px solid #2c3e50;
         }
 
         @keyframes taskSlide {
@@ -405,6 +428,7 @@
             align-items: center;
             gap: 15px;
             margin-bottom: 8px;
+            padding-right: 30px;
         }
 
         .task-checkbox {
@@ -456,6 +480,14 @@
         .empty-icon {
             font-size: 3rem;
             margin-bottom: 15px;
+        }
+
+        .drag-instruction {
+            font-size: 0.8rem;
+            color: #6c757d;
+            text-align: center;
+            margin-bottom: 15px;
+            font-style: italic;
         }
 
         @media (max-width: 768px) {
@@ -528,6 +560,8 @@
                     <button class="add-task-btn" onclick="addTask()">إضافة مهمة</button>
                 </div>
 
+                <div class="drag-instruction">💡 يمكنك سحب المهام لإعادة ترتيبها</div>
+
                 <div class="tasks-list" id="tasksList">
                     <!-- سيتم عرض المهام هنا -->
                 </div>
@@ -544,6 +578,7 @@
         let tasks = {};
         let appointments = {};
         let currentDay = null;
+        let draggedElement = null;
 
         // تحميل البيانات عند تحميل الصفحة
         window.addEventListener('load', function() {
@@ -555,10 +590,19 @@
         });
 
         function loadTasks() {
-            const savedTasks = getCookie('weeklyTasks');
-            if (savedTasks) {
-                tasks = JSON.parse(savedTasks);
-            } else {
+            try {
+                const savedTasks = localStorage.getItem('weeklyTasks');
+                if (savedTasks) {
+                    tasks = JSON.parse(savedTasks);
+                } else {
+                    // إنشاء بنية افتراضية للمهام
+                    daysOfWeek.forEach(day => {
+                        tasks[day] = [];
+                    });
+                }
+            } catch (error) {
+                console.error('خطأ في تحميل المهام:', error);
+                // إنشاء بنية افتراضية في حالة الخطأ
                 daysOfWeek.forEach(day => {
                     tasks[day] = [];
                 });
@@ -566,10 +610,19 @@
         }
 
         function loadAppointments() {
-            const savedAppointments = getCookie('weeklyAppointments');
-            if (savedAppointments) {
-                appointments = JSON.parse(savedAppointments);
-            } else {
+            try {
+                const savedAppointments = localStorage.getItem('weeklyAppointments');
+                if (savedAppointments) {
+                    appointments = JSON.parse(savedAppointments);
+                } else {
+                    // إنشاء بنية افتراضية للمواعيد
+                    daysOfWeek.forEach(day => {
+                        appointments[day] = [];
+                    });
+                }
+            } catch (error) {
+                console.error('خطأ في تحميل المواعيد:', error);
+                // إنشاء بنية افتراضية في حالة الخطأ
                 daysOfWeek.forEach(day => {
                     appointments[day] = [];
                 });
@@ -577,28 +630,21 @@
         }
 
         function saveTasks() {
-            setCookie('weeklyTasks', JSON.stringify(tasks));
+            try {
+                localStorage.setItem('weeklyTasks', JSON.stringify(tasks));
+            } catch (error) {
+                console.error('خطأ في حفظ المهام:', error);
+                alert('حدث خطأ في حفظ المهام');
+            }
         }
 
         function saveAppointments() {
-            setCookie('weeklyAppointments', JSON.stringify(appointments));
-        }
-
-        function setCookie(name, value, days = 365) {
-            const expires = new Date();
-            expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
-            document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires.toUTCString()}; path=/`;
-        }
-
-        function getCookie(name) {
-            const nameEQ = name + "=";
-            const ca = document.cookie.split(';');
-            for(let i = 0; i < ca.length; i++) {
-                let c = ca[i];
-                while (c.charAt(0) === ' ') c = c.substring(1, c.length);
-                if (c.indexOf(nameEQ) === 0) return decodeURIComponent(c.substring(nameEQ.length, c.length));
+            try {
+                localStorage.setItem('weeklyAppointments', JSON.stringify(appointments));
+            } catch (error) {
+                console.error('خطأ في حفظ المواعيد:', error);
+                alert('حدث خطأ في حفظ المواعيد');
             }
-            return null;
         }
 
         function setupAppointmentDays() {
@@ -645,7 +691,10 @@
             const day = daySelect.value;
             const description = descInput.value.trim();
             
-            if (!day || !description) return;
+            if (!day || !description) {
+                alert('يرجى اختيار اليوم وكتابة وصف الموعد');
+                return;
+            }
 
             const appointment = {
                 id: Date.now(),
@@ -714,7 +763,14 @@
             document.querySelectorAll('.day-card').forEach(card => {
                 card.classList.remove('active');
             });
-            event.target.closest('.day-card').classList.add('active');
+            
+            // البحث عن الكارت الصحيح
+            const dayCards = document.querySelectorAll('.day-card');
+            dayCards.forEach(card => {
+                if (card.querySelector('.day-name span').textContent === day) {
+                    card.classList.add('active');
+                }
+            });
             
             renderTasks();
             
@@ -738,14 +794,18 @@
             const taskText = taskInput.value.trim();
             const duration = parseInt(durationInput.value) || 0;
             
-            if (!taskText) return;
+            if (!taskText) {
+                alert('يرجى كتابة المهمة');
+                return;
+            }
 
             const task = {
                 id: Date.now(),
                 text: taskText,
                 duration: duration,
                 completed: false,
-                createdAt: new Date().toLocaleString('ar-SA')
+                createdAt: new Date().toLocaleString('ar-SA'),
+                order: tasks[currentDay].length // إضافة ترتيب للمهمة
             };
 
             if (!tasks[currentDay]) {
@@ -776,10 +836,12 @@
         function deleteTask(taskId) {
             if (!currentDay) return;
             
-            tasks[currentDay] = tasks[currentDay].filter(t => t.id !== taskId);
-            saveTasks();
-            renderTasks();
-            renderDays();
+            if (confirm('هل أنت متأكد من حذف هذه المهمة؟')) {
+                tasks[currentDay] = tasks[currentDay].filter(t => t.id !== taskId);
+                saveTasks();
+                renderTasks();
+                renderDays();
+            }
         }
 
         function renderTasks() {
@@ -799,8 +861,17 @@
                 return;
             }
 
-            tasksList.innerHTML = dayTasks.map(task => `
-                <div class="task-item ${task.completed ? 'completed' : ''}">
+            // ترتيب المهام حسب الترتيب المحفوظ
+            const sortedTasks = dayTasks.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+            tasksList.innerHTML = sortedTasks.map(task => `
+                <div class="task-item ${task.completed ? 'completed' : ''}" 
+                     draggable="true" 
+                     data-task-id="${task.id}"
+                     ondragstart="handleDragStart(event)"
+                     ondragend="handleDragEnd(event)"
+                     ondragover="handleDragOver(event)"
+                     ondrop="handleDrop(event)">
                     <div class="task-header">
                         <input type="checkbox" class="task-checkbox" 
                                ${task.completed ? 'checked' : ''} 
@@ -811,6 +882,81 @@
                     ${task.duration > 0 ? `<div class="task-duration">مدة المهمة: ${task.duration} دقيقة</div>` : ''}
                 </div>
             `).join('');
+        }
+
+        // وظائف السحب والإفلات
+        function handleDragStart(e) {
+            draggedElement = e.target;
+            e.target.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', e.target.outerHTML);
+        }
+
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            // إزالة كلاس drag-over من جميع العناصر
+            document.querySelectorAll('.task-item').forEach(item => {
+                item.classList.remove('drag-over');
+            });
+        }
+
+        function handleDragOver(e) {
+            if (e.preventDefault) {
+                e.preventDefault();
+            }
+            
+            // إزالة كلاس drag-over من جميع العناصر
+            document.querySelectorAll('.task-item').forEach(item => {
+                item.classList.remove('drag-over');
+            });
+            
+            // إضافة كلاس drag-over للعنصر الحالي
+            if (e.target.closest('.task-item') && e.target.closest('.task-item') !== draggedElement) {
+                e.target.closest('.task-item').classList.add('drag-over');
+            }
+            
+            e.dataTransfer.dropEffect = 'move';
+            return false;
+        }
+
+        function handleDrop(e) {
+            if (e.stopPropagation) {
+                e.stopPropagation();
+            }
+
+            const dropTarget = e.target.closest('.task-item');
+            if (draggedElement !== dropTarget && dropTarget) {
+                const draggedTaskId = parseInt(draggedElement.getAttribute('data-task-id'));
+                const dropTaskId = parseInt(dropTarget.getAttribute('data-task-id'));
+                
+                reorderTasks(draggedTaskId, dropTaskId);
+            }
+
+            return false;
+        }
+
+        function reorderTasks(draggedTaskId, dropTaskId) {
+            if (!currentDay || !tasks[currentDay]) return;
+
+            const dayTasks = tasks[currentDay];
+            const draggedIndex = dayTasks.findIndex(task => task.id === draggedTaskId);
+            const dropIndex = dayTasks.findIndex(task => task.id === dropTaskId);
+
+            if (draggedIndex === -1 || dropIndex === -1) return;
+
+            // إزالة المهمة المسحوبة من موقعها الأصلي
+            const draggedTask = dayTasks.splice(draggedIndex, 1)[0];
+            
+            // إدراج المهمة في الموقع الجديد
+            dayTasks.splice(dropIndex, 0, draggedTask);
+            
+            // تحديث ترتيب جميع المهام
+            dayTasks.forEach((task, index) => {
+                task.order = index;
+            });
+
+            saveTasks();
+            renderTasks();
         }
 
         // إضافة مهمة بالضغط على Enter
@@ -826,6 +972,23 @@
                 addAppointment();
             }
         });
+
+        // تأكد من حفظ البيانات عند إغلاق الصفحة
+        window.addEventListener('beforeunload', function(e) {
+            // حفظ البيانات قبل إغلاق الصفحة
+            if (Object.keys(tasks).length > 0) {
+                saveTasks();
+            }
+            if (Object.keys(appointments).length > 0) {
+                saveAppointments();
+            }
+        });
+
+        // حفظ البيانات كل 30 ثانية تلقائياً
+        setInterval(function() {
+            saveTasks();
+            saveAppointments();
+        }, 30000);
     </script>
 </body>
 </html>
